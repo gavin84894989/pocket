@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>口袋訓練系統</title>
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <!-- 【新增】引入 look-at 組件以支援文字動態追蹤攝影機 -->
+    <script src="https://unpkg.com/aframe-look-at-component@0.8.0/dist/aframe-look-at-component.min.js"></script>
+    <style>
+        body { margin: 0; font-family: "Microsoft JhengHei", Arial, sans-serif; overflow: hidden; }
+        
+        #menu-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(20, 30, 48, 0.95); z-index: 9999;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            color: white;
+        }
+
+        /* 教學模式切換按鈕樣式 */
+        #tutorial-toggle-btn {
+            background: #444; color: white; border: 2px solid #666;
+            padding: 10px 20px; font-size: 16px; border-radius: 8px; cursor: pointer;
+            margin-bottom: 20px; font-weight: bold; transition: all 0.3s;
+        }
+        #tutorial-toggle-btn.active {
+            background: #28a745; border-color: #1e7e34;
+        }
+
+        #button-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr); 
+            gap: 20px; 
+            width: 90%;
+            max-width: 900px;
+            max-height: 60vh; 
+            overflow-y: auto; 
+            padding: 10px;
+        }
+
+        .menu-btn {
+            background: #007bff; color: white; border: 2px solid #0056b3; 
+            padding: 20px 10px; font-size: 18px; border-radius: 8px; cursor: pointer;
+            transition: all 0.3s; font-weight: bold; width: 100%; box-sizing: border-box;
+        }
+        .menu-btn:hover { background: #0056b3; transform: scale(1.05); }
+
+        @media (max-width: 768px) { #button-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 480px) { #button-grid { grid-template-columns: 1fr; } }
+
+        #popup-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); z-index: 10000; display: none;
+            flex-direction: column; align-items: center; justify-content: center; color: white;
+        }
+        #popup-card {
+            background: #222; border: 3px solid #ffcc00; border-radius: 10px;
+            padding: 20px; text-align: center; max-width: 450px; width: 90%;
+            box-shadow: 0 0 20px rgba(114, 106, 76, 0.5);
+            display: flex; flex-direction: column;
+        }
+        #popup-img { width: 100%; max-height: 250px; object-fit: contain; margin-bottom: 15px; border-radius: 5px; border: 1px solid #555; }
+        #popup-text { font-size: 16px; margin-bottom: 20px; line-height: 1.6; text-align: left; color: #eee; }
+        
+        #popup-next-btn {
+            background: #28a745; color: white; border: none; padding: 12px;
+            font-size: 16px; border-radius: 5px; cursor: pointer; font-weight: bold; width: 100%;
+        }
+        #popup-next-btn:hover { filter: brightness(1.1); }
+        /* 當按鈕文字包含"若無效"時的特殊樣式 */
+        #popup-next-btn.alt-btn { background: #dc3545; }
+
+        #end-screen, #game-over-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95); z-index: 10001; display: none;
+            flex-direction: column; align-items: center; justify-content: center; color: white;
+        }
+
+        /* 【新增】血條 HUD 介面 */
+        #hud-container {
+            position: fixed; top: 20px; right: 20px; z-index: 9998;
+            display: none; flex-direction: column; align-items: flex-end;
+            pointer-events: none; /* 避免擋住點擊 */
+        }
+        .hp-text { color: white; font-weight: bold; font-size: 16px; margin-bottom: 5px; text-shadow: 1px 1px 3px #000; }
+        .hp-bar-bg { 
+            width: 200px; height: 25px; background: #333; 
+            border: 2px solid #fff; border-radius: 12px; overflow: hidden; 
+            box-shadow: 0 0 10px rgba(0,0,0,0.8);
+        }
+        .hp-bar-fill { 
+            width: 100%; height: 100%; background: #28a745; 
+            transition: width 0.3s ease-in-out, background-color 0.3s ease; 
+        }
+
+        /* 【新增】受擊視覺效果 (紅光與震動) */
+        #damage-flash {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 0, 0, 0.4); z-index: 9997; display: none; pointer-events: none;
+        }
+        .shake-effect { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-3px, 0, 0); }
+            20%, 80% { transform: translate3d(5px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-8px, 0, 0); }
+            40%, 60% { transform: translate3d(8px, 0, 0); }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 【新增】音效載入 -->
+    <audio id="se-correct" src="答對了.MP3" preload="auto"></audio>
+    <audio id="se-wrong" src="答錯了.MP3" preload="auto"></audio>
+
+    <!-- 【新增】血條與受擊畫面 -->
+    <div id="damage-flash"></div>
+    <div id="hud-container">
+        <div class="hp-text" id="hp-text">剩餘容錯機會: 5 / 5</div>
+        <div class="hp-bar-bg">
+            <div class="hp-bar-fill" id="hp-bar-fill"></div>
+        </div>
+    </div>
+
+    <div id="menu-overlay">
+        <h2 style="letter-spacing: 2px; margin-bottom: 10px;">請選擇發生的故障程序</h2>
+        <!-- 調整預設樣式為 active 與預設文字為教學模式 -->
+        <button id="tutorial-toggle-btn" class="active" onclick="toggleTutorialMode()">挑戰模式 OFF (無引導)</button>
+        <div id="button-grid"></div>
+        <p style="color: #ffcc00; font-size: 14px; margin-top: 20px; font-weight: bold;">【開發提示】按 F12 開啟主控台，點擊畫面即可取得 3D 座標！</p>
+    </div>
+
+    <div id="popup-overlay">
+        <div id="popup-card">
+            <h3 id="popup-title" style="color: #ffcc00; margin-top: 0; font-size: 20px;">步驟標題</h3>
+            <img id="popup-img" src="" alt="部位近照大圖">
+            <div id="popup-text">詳細處置步驟說明...</div>
+            <button id="popup-next-btn" onclick="advanceStep()">確認後執行下一步</button>
+        </div>
+    </div>
+
+    <div id="end-screen">
+        <h1 style="color: #28a745; font-size: 36px;">故障排除程序完成！</h1>
+        <p id="end-msg" style="font-size: 20px; text-align: center; padding: 0 20px; line-height: 1.6; max-width: 600px;"></p>
+        <button class="menu-btn" onclick="location.reload()" style="background: #dc3545; width: auto; padding: 15px 40px;">回首頁</button>
+    </div>
+
+    <!-- 【新增】失敗結算畫面 -->
+    <div id="game-over-screen">
+        <h1 style="color: #dc3545; font-size: 36px;">挑戰失敗！</h1>
+        <p style="font-size: 20px; text-align: center; padding: 0 20px; line-height: 1.6; max-width: 600px;">勝敗乃兵家常事，大俠請重新來過。</p>
+        <button class="menu-btn" onclick="location.reload()" style="background: #dc3545; width: auto; padding: 15px 40px;">重新挑戰</button>
+    </div>
+
+    <a-scene id="game-scene" loading-screen="enabled: false" 
+    renderer="antialias: true; colorManagement: true; precision: high; maxCanvasWidth: -1; maxCanvasHeight: -1;">
+        
+        <a-assets>
+            <img id="img-b-side" src="b_side.jpg" crossorigin="anonymous">
+        </a-assets>
+
+        <a-sky id="main-sky" src="#img-b-side" rotation="0 0 0" class="clickable" click-to-log segments-width="256" segments-height="128"></a-sky>
+        <a-entity cursor="rayOrigin: mouse" raycaster="objects: .clickable, .hotspot"></a-entity>
+        <a-entity camera 
+          look-controls="reverseMouseDrag: true; magicWindowTrackingEnabled: true;" 
+          position="0 1.6 0">
+            <!-- 【修改】拿掉 3 秒視野確認，改為純點擊 -->
+            <a-cursor id="fuse-cursor"
+                raycaster="objects: .clickable, .hotspot"
+                animation__click="property: scale; startEvents: click; easing: easeInQuad; from: 0.1 0.1 0.1; to: 1 1 1; dur: 150"
+                animation__mouseleave="property: scale; startEvents: mouseleave; easing: easeInQuad; to: 1 1 1; dur: 150"
+                cursor="fuse: false"
+                material="color: #00fff2; shader: flat"
+                position="0 0 -1"
+                geometry="primitive: ring; radiusInner: 0.02; radiusOuter: 0.03">
+            </a-cursor>
+        </a-entity>
+
+        <!-- 16 個熱點 (已重寫為方式 B) -->
+        <a-sphere id="spot-1" class="hotspot" position="0.19 -5.12 -4.33" radius="0.3" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 1; align: center; width: 5; color: black; zOffset: 0.35" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- KEY OFF/ON 重置 -->
+        
+        <a-sphere id="spot-2" class="hotspot" position="2.04 -2.89 -6.30" radius="0.3" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 2; align: center; width: 5; color: black; zOffset: 0.35" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- MCCP -->
+        
+        <a-sphere id="spot-3" class="hotspot" position="-5.20 4.40 5.40" radius="0.3" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 3; align: center; width: 5; color: black; zOffset: 0.35" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- 備援繼電器 -->
+        
+        <a-sphere id="spot-4" class="hotspot" position="3.47 -0.76 -6.81" radius="0.3" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 4; align: center; width: 5; color: black; zOffset: 0.35" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- EB LOOP BYPASS -->
+        
+        <a-sphere id="spot-5" class="hotspot" position="3.61 -0.08 -6.94" radius="0.3" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 5; align: center; width: 5; color: black; zOffset: 0.35" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- TRIP COCK BYPASS -->
+        
+        <a-sphere id="spot-6" class="hotspot" position="1.03 -4.80 -4.68" radius="0.1" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 6; align: center; width: 4; color: black; zOffset: 0.15" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- CM -->
+        
+        <a-sphere id="spot-7" class="hotspot" position="1.46 -4.91 -4.41" radius="0.1" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 7; align: center; width: 4; color: black; zOffset: 0.15" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- YM -->
+        
+        <a-sphere id="spot-8" class="hotspot" position="1.26 -4.83 -4.59" radius="0.1" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 8; align: center; width: 4; color: black; zOffset: 0.15" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- RM -->
+        
+        <a-sphere id="spot-9" class="hotspot" position="7.85 1.96 1.48" radius="0.3" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 9; align: center; width: 5; color: black; zOffset: 0.35" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- ATP BYPASS -->
+        
+        <a-sphere id="spot-10" class="hotspot" position="2.95 5.84 6.11" radius="0.3" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 10; align: center; width: 5; color: black; zOffset: 0.35" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- RBCTD BYPASS -->
+        
+        <a-sphere id="spot-11" class="hotspot" position="3.81 -0.87 -6.59" radius="0.3" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 11; align: center; width: 5; color: black; zOffset: 0.35" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- DOOR OVERRIDE -->
+        
+        <a-sphere id="spot-12" class="hotspot" position="-4.38 -2.82 -5.02" radius="0.3" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 12; align: center; width: 5; color: black; zOffset: 0.35" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- TSIS -->
+        
+        <a-sphere id="spot-13" class="hotspot" position="0.71 3.48 7.74" radius="0.3" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 13; align: center; width: 5; color: black; zOffset: 0.35" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- ATO PA -->
+        
+        <a-sphere id="spot-14" class="hotspot" position="-0.45 3.50 7.76" radius="0.3" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 14; align: center; width: 5; color: black; zOffset: 0.35" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- AUX ON -->
+        
+        <a-sphere id="spot-15" class="hotspot" position="-1.23 5.86 6.69" radius="0.3" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 15; align: center; width: 5; color: black; zOffset: 0.35" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- 背向斷路器 -->
+        
+        <a-sphere id="spot-16" class="hotspot" position="-2.48 -2.30 -6.53" radius="0.3" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 16; align: center; width: 5; color: black; zOffset: 0.35" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- 車門開啟狀態燈 -->
+        
+        <a-sphere id="spot-17" class="hotspot" position="6.20 1.08 5.03" radius="0.3" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 17; align: center; width: 5; color: black; zOffset: 0.35" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- 至另一端駕駛室重新排除 -->
+        
+        <a-sphere id="spot-18" class="hotspot" position="-5.03 -0.83 5.73" radius="0.3" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 18; align: center; width: 5; color: black; zOffset: 0.35" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- 嘗試開關門測試 -->
+        <a-sphere id="spot-19" class="hotspot" position="-2.98 -3.86 -5.03" radius="0.3" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 19; align: center; width: 5; color: black; zOffset: 0.35" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- EB按鈕 A-->
+        <a-sphere id="spot-20" class="hotspot" position="7.68 -0.19 -1.37" radius="0.3" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 20; align: center; width: 5; color: black; zOffset: 0.35" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- EB按鈕 B-->
+        <a-sphere id="spot-21" class="hotspot" position="1.41 -5.13 -4.09" radius="0.2" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 21; align: center; width: 5; color: black; zOffset: 0.2" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- BACK UP-->
+        <a-sphere id="spot-22" class="hotspot" position="-3.18 -2.78 -5.89" radius="0.3" material="opacity: 0.3; color: #cef4f5;transparent: true; depthWrite: false; shader: flat;">
+            <a-entity text="value: 22; align: center; width: 5; color: black; zOffset: 0.35" look-at="[camera]"></a-entity>
+        </a-sphere> <!-- 主蓄風缸-->
+    </a-scene>
+
+    <script>
+        // ==========================================
+        // 【核心設定區】將「位置(spot)」與「文案(db)」分離設定
+        // ==========================================
+        const GAME_MODES = [
+            { 
+                label: '1. 車門系統故障 (站間)', 
+                sequence: [
+                    { spot: '16', db: 'p1_1' },
+                    { spot: '12', db: 'p1_2' },//TSIS
+                    { spot: '15', db: 'p1_3' },//背向斷路器
+                    { spot: '11', db: 'p1_4' },//DOOR OVERRIDE
+                    { spot: '11', db: 'p1_5' },//DOOR OVERRIDE ON
+                    { spot: '6',  db: 'p1_6' },//CM
+                    { spot: '1',  db: 'p1_7' },//KEY OFF/ON 重置
+                    { spot: '6',  db: 'p1_8' },//CM
+                    { spot: '3',  db: 'p1_9' },//備援繼電器
+                    { spot: '6',  db: 'p1_10' },//CM
+                    { spot: '11', db: 'p1_11' },//DOOR OVERRIDE
+                    { spot: '7',  db: 'p1_12' },//YM
+                    { spot: '17',  db: 'p1_13' } // 至另一端駕駛室重新排除
+                ] 
+            },
+            { 
+                label: '2. EB-A 燈亮 / 時滅時亮', 
+                sequence: [
+                    { spot: '16', db: 'p4_1' },
+                    { spot: '12', db: 'p4_2' },//TSIS
+                    { spot: '1', db: 'p4_3' },//KEY OFF/ON 重置
+                    { spot: '6', db: 'p4_4' },//CM
+                    { spot: '15', db: 'p4_5' },//背向斷路器
+                    { spot: '7',  db: 'p4_6' },//YM
+                    { spot: '3',  db: 'p4_7' },//備援繼電器
+                    { spot: '9',  db: 'p4_8' },//ATP BYPASS
+                    { spot: '6',  db: 'p4_9' },//CM
+                    { spot: '7',  db: 'p4_10' },//YM
+                    { spot: '17', db: 'p4_11' },//至另一端駕駛室重新排除
+                ] 
+            },            
+            { 
+                label: '3. 主蓄壓缸壓力異常及空壓機故障指示燈亮 ', 
+                sequence: [
+                    { spot: '22', db: 'p2_1' },//主蓄風缸壓力表
+                    { spot: '4',  db: 'p2_2' },//EB LOOP BYPASS
+                    { spot: '5', db: 'p2_3' },//TRIP COCK BYPASS
+                    { spot: '10',  db: 'p2_4' },//RBCTD BYPASS ON
+                    { spot: '8',  db: 'p2_5' },//RM
+                   
+                ] 
+            },
+            { 
+                label: '4. EB-B 燈亮', 
+                sequence: [
+                    { spot: '16', db: 'p3_1' },//車門開啟狀態燈
+                    { spot: '1',  db: 'p3_2' },//KEY OFF/ON 重置
+                    { spot: '15', db: 'p3_3' },//背向斷路器
+                    { spot: '19',  db: 'p3_4' },//EB按鈕 A
+                    { spot: '20',  db: 'p3_5' },//EB按鈕 B  
+                    { spot: '7',  db: 'p3_6' },//YM模式
+                    { spot: '3',  db: 'p3_7' },//備援繼電器
+                    { spot: '4',  db: 'p3_8' },//EB LOOP BYPASS
+                    { spot: '5', db: 'p3_9' },//TRIP COCK BYPASS
+                    { spot: '6',  db: 'p3_10' },//CM
+                    { spot: '8',  db: 'p3_11' },//RM
+                    { spot: '9',  db: 'p3_12' },//ATP BYPASS
+                    { spot: '7',  db: 'p3_13' },//YM
+                    { spot: '17',  db: 'p3_14' }//至另一端駕駛室重新排除
+                ] 
+            }
+        ];
+
+        const HOTSPOT_DATABASE = {
+            // ================= 【程序 1 - 車門系統故障(站間發生)】 =================
+            'p1_1': { title: '【優先確認】', img: 'p1_1.jpg', msg: '確認車門開啟狀態燈 (16)。', btnText: '確認後下一步' },
+            'p1_2': { title: '【確認 TSIS】', img: 'p1_2.jpg', msg: '確認 TSIS (12) 顯示狀態。', btnText: '確認後下一步' },
+            'p1_3': { title: '【背向斷路器】', img: 'p1_3.jpg', msg: '確認背向斷路器 (15)。', btnText: '確認後下一步' },
+            'p1_4': { title: '【DOOR OVERRIDE OFF】', img: 'p1_4.jpg', msg: '確認 DOOR OVERRIDE是OFF狀態。', btnText: '皆已確認後開始進行排除' },
+            // 開始進入「若無效」的線性迴圈
+            'p1_5': { title: '【DOOR OVERRIDE ON】', img: 'p1_4.jpg', msg: '將 DOOR OVERRIDE 切至 ON。', btnText: '確認後下一步' },
+            'p1_6': { title: '【CM】', img: 'p1_6.jpg', msg: '切換至 CM模式並嘗試清車移至待避區間（包含終端站清車/換車/移回）。', btnText: '若無效' },
+            
+            'p1_7': { title: '【KEY OFF/ON】', img: 'p1_7.jpg', msg: '執行 KEY OFF/ON 重置→主控制器EB迴路重置。', btnText: '確認後下一步' },
+            'p1_8': { title: '【CM】', img: 'CM.jpg', msg: '切換至 CM模式並嘗試清車移至待避區間（包含終端站清車/換車/移回）。', btnText: '若無效' },
+            
+            'p1_9': { title: '【備援繼電器】', img: 'p1_9.jpg', msg: '啟動備援繼電器。', btnText: '確認後下一步' },
+            'p1_10': { title: '【CM】', img: 'CM.jpg', msg: '切換至 CM 模式並嘗試清車移至待避區間（包含終端站清車/換車/移回）。', btnText: '若無效' },
+
+            'p1_11': { title: '【DOOR OVERRIDE OFF】', img: 'p1_4.jpg', msg: '將 DOOR OVERRIDE切回 OFF。', btnText: '確認後下一步' },
+            'p1_12': { title: '【YM】', img: 'p1_7.jpg', msg: '切換至 YM模式並嘗試清車移至待避區間（包含終端站清車/換車/移回）。', btnText: '若皆無效' },
+            
+            'p1_13': { title: '【另一端】', img: '另一端.jpg', msg: '至另一端駕駛室重新排除請求列車救援 / 執行六車自救。', btnText: '完成通報 (結束)' },
+
+            // ================= 【程序 2 -  EB-A 燈亮 / 時滅時亮】 =================
+            'p4_1': { title: '【優先確認】', img: 'p1_1.jpg', msg: '檢視車門警示燈亮起時，優先執行程序1。(16)。', btnText: '車門警示燈無亮起則下一步' },
+            'p4_2': { title: '【確認 TSIS】', img: 'p1_2.jpg', msg: '確認 TSIS (12) 顯示狀態。', btnText: '確認後下一步' },
+            'p4_3': { title: '【KEY OFF/ON 重置】', img: 'p1_7.jpg', msg: '執行 KEY OFF/ON 重置→主控制器EB迴路重置。', btnText: '確認後下一步' },            
+            'p4_4': { title: '【CM】', img: 'CM.jpg', msg: '切換至 CM模式行駛。', btnText: '若無效' },
+            'p4_5': {title: '【背向斷路器】', img: 'p1_3.jpg', msg: '檢視背向面板重要斷路器及影響列車無法移動斷路器跳脫狀況。', btnText: '若皆無跳脫則清車，倘若車門無法開啟' },
+            'p4_6': {title: '【YM 模式】', img: 'p1_7.jpg', msg: '使用 YM (7) 模式執行開關門。', btnText: '若無效' },
+            // 開始進入「若無效」的線性迴圈
+            'p4_7': { title: '【備援繼電器】', img: 'p1_9.jpg', msg: '啟動備援繼電器(再執行開門)，若無效則通知站長按壓四門開啟按鈕或開啟緊急開門旋鈕後清車 。', btnText: '確認後下一步' },
+            
+            'p4_8': { title: '【ATP 旁路】', img: '開燈ATC.jpg', msg: '開啟 ATP BYPASS (9)。', btnText: '確認後下一步' },
+            'p4_9': { title: '【CM】', img: 'CM.jpg', msg: '切換至 CM模式行駛。', btnText: '若無效' },
+            
+            'p4_10': { title: '【YM 模式】', img: 'p1_7.jpg', msg: '使用 YM (7) 模式執行清車移至待避區間 。', btnText: '若無效' },
+            'p4_11': { title: '【另一端】', img: '另一端.jpg', msg: '至另一端駕駛室重新排除請求列車救援 / 執行六車自救。', btnText: '完成通報 (結束)' },
+
+            // ================= 【程序 6 - 主蓄壓缸壓力異常及空壓機故障指示燈亮 】 =================
+            'p2_1': { title: '【主蓄風缸壓力表】', img: '主蓄風缸.jpg', msg: '當空壓機故障指示燈亮或主蓄壓缸壓力持續大於11.5BAR或車下持續有異常洩氣聲時，請行控即刻通知維修人員上車檢修，當主蓄壓缸壓力低於7.5BAR，且有持續下降趨勢（觀察1個站間，若仍有相同情形則清車，不論空壓機故障指示燈亮與否），請回報行控中心就近將列車清車移最近待避區間。', btnText: '執行清車' },
+            'p2_2': { title: '【EB LOOP BYPASS】', img: 'p1_11.jpg', msg: '開啟 EB LOOP BYPASS (4)。', btnText: '開啟後下一步' },
+            'p2_3': { title: '【TRIP COCK BYPASS】', img: 'p1_11.jpg', msg: '開啟 TRIP COCK BYPASS (5)。', btnText: '開啟後下一步' },
+            'p2_4': { title: '【RBCTD BYPASS ON】', img: 'RBCTD.jpg', msg: '開啟 RBCTD BYPASS ON (10)。', btnText: '開啟後下一步' },
+            'p2_5': { title: '【RM】', img: 'RM.jpg', msg: '切換至 RM模式並嘗試清車移至待避區間，若列車以25KPH行駛過程中發現有明顯煙霧，則依序降速15KPH、5KPH行駛觀察。(行駛距離超過10公里易產生明顯煙霧)，若列車以5KPH行駛過程中仍有明顯煙霧，則下軌至車下隔離駐車煞車及隔離氣源後(約耗時10分鐘)，再自行移離，若再無法則請求列車（支）救援。', btnText: '完成通報 (結束)' },
+
+            // ================= 【程序 3 - EB-B 燈亮】 =================
+            'p3_1': { title: '【優先確認】', img: 'p1_1.jpg', msg: '檢視車門警示燈亮起時，優先執行程序1。(16)。', btnText: '車門警示燈無亮起則下一步' },
+            'p3_2': { title: '【KEY OFF/ON 重置】', img: 'p1_7.jpg', msg: '執行 KEY OFF/ON 重置→主控制器EB迴路重置，依行控中心指示的模式行駛。', btnText: '下一步' },
+            'p3_3': { title: '【背向斷路器】', img: 'p1_3.jpg', msg: '檢視背向面板重要斷路器及影響列車無法移動斷路器跳脫狀況。', btnText: '皆正常則下一步' },
+            'p3_4': { title: '【緊急按鈕A】', img: 'EBA.jpg', msg: '重置兩端緊急按鈕。', btnText: '下一個緊急按鈕' },
+            'p3_5': { title: '【緊急按鈕B】', img: 'EBB.jpg', msg: '重置兩端緊急按鈕→主控制器EB迴路重置。', btnText: '若無效執行清車，倘若車門無法開啟' },
+            'p3_6': {title: '【YM 模式】', img: 'p1_7.jpg', msg: '使用 YM (7) 模式執行開關門。', btnText: '若無效' },
+            'p3_7': { title: '【備援繼電器】', img: 'p1_9.jpg', msg: '啟動備援繼電器再執行開門，若無效則通知站長按壓四門開啟按鈕或開啟緊急開門旋鈕後清車。', btnText: '清車完畢後下一步' },
+            'p3_8': { title: '【EB LOOP BYPASS】', img: 'p1_11.jpg', msg: '開啟 EB LOOP BYPASS (4)。', btnText: '開啟後下一步' },
+            'p3_9': { title: '【TRIP COCK BYPASS】', img: 'p1_11.jpg', msg: '開啟 TRIP COCK BYPASS (5)。', btnText: '開啟後下一步' },
+            'p3_10': { title: '【CM】', img: 'CM.jpg', msg: '切換至 CM模式行駛。', btnText: '若無效' },
+            'p3_11': { title: '【RM】', img: 'RM.jpg', msg: '切換至 RM模式並嘗試清車移至待避區間。', btnText: '若無效' },
+            'p3_12': { title: '【ATP BYPASS】', img: '開燈ATC.jpg', msg: '開啟 ATP BYPASS (9)。', btnText: '開啟後下一步' },
+            'p3_13': { title: '【YM】', img: 'p1_7.jpg', msg: '使用 YM (7) 模式執行清車移至待避區間 。', btnText: '若無效' },
+            'p3_14': { title: '【另一端】', img: '另一端.jpg', msg: '至另一端駕駛室重新排除請求列車救援 / 執行六車自救。', btnText: '完成通報 (結束)' },
+        };
+
+        // ==========================================
+        // 遊戲核心邏輯 (線性推進腳本)
+        // ==========================================
+        let currentModeName = ''; 
+        let currentStepIndex = 0;
+        let flowSequence = [];
+        
+        // 狀態變數：預設已啟用教學模式 (顯示光環)
+        let isTutorialMode = true;
+        
+        // 【新增】挑戰模式 HP 設定
+        const MAX_HP = 5;
+        let currentHp = MAX_HP;
+
+        // 切換模式函數 (反向邏輯：點擊切換為挑戰模式)
+        function toggleTutorialMode() {
+            isTutorialMode = !isTutorialMode;
+            const btn = document.getElementById('tutorial-toggle-btn');
+            if (isTutorialMode) {
+                btn.classList.add('active');
+                btn.innerText = '挑戰模式 ON';
+            } else {
+                btn.classList.remove('active');
+                btn.innerText = '挑戰模式 OFF(會有光環引導)';
+            }
+        }
+
+        function renderMenuButtons() {
+            const gridContainer = document.getElementById('button-grid');
+            gridContainer.innerHTML = ''; 
+            GAME_MODES.forEach((mode) => {
+                const btn = document.createElement('button');
+                btn.className = 'menu-btn';
+                btn.innerText = mode.label;
+                btn.onclick = () => startGame(mode.label, mode.sequence);
+                gridContainer.appendChild(btn);
+            });
+        }
+
+        function startGame(modeName, sequenceArray) {
+            currentModeName = modeName;
+            flowSequence = sequenceArray;
+            currentStepIndex = 0;
+            currentHp = MAX_HP; // 重設血量
+
+            document.getElementById('menu-overlay').style.display = 'none';
+            
+            // 若為挑戰模式，強制顯示右上角血條
+            if (!isTutorialMode) {
+                document.getElementById('hud-container').style.display = 'flex';
+                updateHpUI();
+            }
+            
+            initStep();
+        }
+
+        function initStep() {
+            // 隱藏彈窗並恢復游標功能
+            document.getElementById('popup-overlay').style.display = 'none';
+            
+            // 清除現有熱點的標記、動畫與修改過的材質，確保無損恢復初始狀態
+            const hotspots = document.querySelectorAll('.hotspot');
+            hotspots.forEach(el => { 
+                el.classList.remove('active-target'); 
+                el.removeAttribute('animation__tutorial');
+                el.setAttribute('scale', '1 1 1');
+                el.setAttribute('material', 'opacity: 0.3; color: #cef4f5; transparent: true; depthWrite: false; shader: flat;');
+            });
+
+            // 判斷是否全數完成
+            if (currentStepIndex >= flowSequence.length) {
+                endGame();
+                return;
+            }
+
+            // 啟動當前陣列位置指定的球體
+            const targetSpotId = 'spot-' + flowSequence[currentStepIndex].spot;
+            const activeSpot = document.getElementById(targetSpotId);
+            
+            if (activeSpot) {
+                activeSpot.classList.add('active-target');
+                
+                // 若啟用教學模式，針對該熱點注入脈衝動畫與高亮材質
+                if (isTutorialMode) {
+                    activeSpot.setAttribute('animation__tutorial', 'property: scale; dir: alternate; dur: 800; to: 1.6 1.6 1.6; loop: true; easing: easeInOutSine');
+                    activeSpot.setAttribute('material', 'opacity: 0.8; color: #ffcc00; transparent: true; depthWrite: false; shader: flat;');
+                }
+            } else {
+                console.error("找不到對應的熱點物件: " + targetSpotId);
+            }
+        }
+
+        // 【新增】錯誤懲罰邏輯
+        function triggerMistake() {
+            // 播放答錯音效
+            let seWrong = document.getElementById('se-wrong');
+            seWrong.currentTime = 0;
+            seWrong.play().catch(e => console.warn("音效播放被阻擋", e));
+
+            // 觸發硬體震動 (需設備支援)
+            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+
+            // 視覺震動與紅光特效
+            document.body.classList.add('shake-effect');
+            let flash = document.getElementById('damage-flash');
+            flash.style.display = 'block';
+            setTimeout(() => { 
+                document.body.classList.remove('shake-effect'); 
+                flash.style.display = 'none';
+            }, 400);
+
+            // 扣血更新
+            currentHp--;
+            updateHpUI();
+
+            if (currentHp <= 0) {
+                setTimeout(() => {
+                    document.getElementById('game-over-screen').style.display = 'flex';
+                }, 500);
+            }
+        }
+
+        // 【新增】更新右上角血條 UI
+        function updateHpUI() {
+            let hpFill = document.getElementById('hp-bar-fill');
+            let hpText = document.getElementById('hp-text');
+            let percentage = (currentHp / MAX_HP) * 100;
+            
+            hpFill.style.width = percentage + '%';
+            hpText.innerText = `剩餘容錯機會: ${currentHp} / ${MAX_HP}`;
+            
+            // 隨血量變化警示色
+            if (currentHp >= 4) hpFill.style.background = '#28a745'; // 綠
+            else if (currentHp >= 2) hpFill.style.background = '#ffc107'; // 黃
+            else hpFill.style.background = '#dc3545'; // 紅
+        }
+
+        function triggerHotspot() {
+            // 讀取當前陣列指定的文案庫
+            const dbKey = flowSequence[currentStepIndex].db;
+            const stepData = HOTSPOT_DATABASE[dbKey];
+            if(!stepData) return;
+
+            document.getElementById('popup-title').innerText = stepData.title;
+            document.getElementById('popup-img').src = stepData.img || 'placeholder.jpg';
+            document.getElementById('popup-text').innerHTML = stepData.msg;
+            
+            // 動態更新按鈕文字，並判定是否需要紅色警告樣式
+            const nextBtn = document.getElementById('popup-next-btn');
+            nextBtn.innerText = stepData.btnText || '確認後執行下一步';
+            if (nextBtn.innerText.includes('無效')) {
+                nextBtn.classList.add('alt-btn');
+            } else {
+                nextBtn.classList.remove('alt-btn');
+            }
+
+            document.getElementById('popup-overlay').style.display = 'flex';
+        }
+
+        // 點擊彈窗按鈕後，純粹推進陣列 Index
+        function advanceStep() {
+            currentStepIndex++;
+            initStep();
+        }
+
+        function endGame() {
+            document.getElementById('hud-container').style.display = 'none';
+            document.getElementById('end-screen').style.display = 'flex';
+            document.getElementById('end-msg').innerText = "成功完成【" + currentModeName + "】故障排除標準作業步驟！";
+        }
+
+        AFRAME.registerComponent('hotspot-listener', {
+            init: function () {
+                // 【精準打擊】事件監聽器只掛載於 .hotspot 球體上，不會因為點擊天空而觸發
+                this.el.addEventListener('click', () => {
+                    // 若當前正處於 Game Over 狀態，攔截點擊
+                    if (currentHp <= 0 && !isTutorialMode) return;
+
+                    if (this.el.classList.contains('active-target')) {
+                        // 【正確點擊】
+                        if (!isTutorialMode) {
+                            let seCorrect = document.getElementById('se-correct');
+                            seCorrect.currentTime = 0;
+                            seCorrect.play().catch(e => {});
+                        }
+                        triggerHotspot();
+                    } else {
+                        // 【錯誤點擊】僅在挑戰模式，且點擊到「錯誤的熱點球體」時觸發扣血
+                        if (!isTutorialMode) {
+                            triggerMistake();
+                        }
+                    }
+                });
+            }
+        });
+
+        AFRAME.registerComponent('click-to-log', {
+            init: function () {
+                this.el.addEventListener('click', (evt) => {
+                    let intersection = evt.detail.intersection;
+                    if (intersection) {
+                        let rawPoint = intersection.point;
+                        let cameraEl = document.querySelector('[camera]');
+                        let camPos = cameraEl.object3D.position;
+                        let dir = new THREE.Vector3().copy(rawPoint).sub(camPos);
+                        dir.normalize();
+                        let finalPoint = new THREE.Vector3().copy(camPos).addScaledVector(dir, 8.0);
+                        let coordStr = `${finalPoint.x.toFixed(2)} ${finalPoint.y.toFixed(2)} ${finalPoint.z.toFixed(2)}`;
+                        console.log(`%c 🎯 已自動修正深度!! %c position="${coordStr}"`, "background: #007bff; color: white;", "background: #222; color: #00fff2;");
+                    }
+                });
+            }
+        });
+
+        window.onload = () => {
+            renderMenuButtons(); 
+            // 綁定精準打擊判定至所有的熱點
+            document.querySelectorAll('.hotspot').forEach(el => {
+                el.setAttribute('hotspot-listener', '');
+                const mesh = el.getObject3D('mesh');
+                if (mesh) mesh.frustumCulled = false;
+                else el.addEventListener('loaded', () => {
+                    const m = el.getObject3D('mesh');
+                    if (m) m.frustumCulled = false;
+                });
+            });
+        };
+
+        document.querySelector('#main-sky').addEventListener('materialtextureloaded', (e) => {
+            const tex = e.detail.texture;
+            tex.generateMipmaps = false;
+            tex.minFilter = THREE.LinearFilter;
+            tex.magFilter = THREE.LinearFilter;
+            tex.needsUpdate = true;
+        });
+    </script>
+</body>
+</html>
