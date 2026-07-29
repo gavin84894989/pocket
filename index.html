@@ -124,7 +124,7 @@
 <!-- 【新增】預載動畫容器 -->
     <div id="loading-screen">
         <div class="spinner"></div>
-        <div id="loading-text">壞菌正在努力加載中... (0%)</div>
+        <div id="loading-text">壞菌正在努力為您加載中... (0%)</div>
     </div>
     <!-- 【新增】音效載入 -->
     <audio id="se-correct" src="答對了.MP3" preload="auto"></audio>
@@ -665,7 +665,7 @@
                 const img = new Image();
                 img.onload = img.onerror = () => {
                     loadedCount++;
-                    loadingText.innerText = `系統資源載入中... (${Math.round((loadedCount / totalImages) * 100)}%)`;
+                    loadingText.innerText = `壞菌正在為您努力加載中... (${Math.round((loadedCount / totalImages) * 100)}%)`;
                     // 當全數載入完畢，淡出隱藏遮罩
                     if (loadedCount === totalImages) {
                         setTimeout(() => {
