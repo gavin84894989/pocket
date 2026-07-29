@@ -105,10 +105,27 @@
             30%, 50%, 70% { transform: translate3d(-8px, 0, 0); }
             40%, 60% { transform: translate3d(8px, 0, 0); }
         }
+        /* 【新增】圖片預載動畫樣式 */
+        #loading-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #141e30; z-index: 99999;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            color: #ffcc00; font-weight: bold; font-size: 20px;
+        }
+        .spinner {
+            width: 50px; height: 50px; border: 5px solid rgba(255, 204, 0, 0.3);
+            border-top-color: #ffcc00; border-radius: 50%;
+            animation: spin 1s linear infinite; margin-bottom: 20px;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
-
+<!-- 【新增】預載動畫容器 -->
+    <div id="loading-screen">
+        <div class="spinner"></div>
+        <div id="loading-text">壞菌正在努力加載中... (0%)</div>
+    </div>
     <!-- 【新增】音效載入 -->
     <audio id="se-correct" src="答對了.MP3" preload="auto"></audio>
     <audio id="se-wrong" src="答錯了.MP3" preload="auto"></audio>
@@ -608,8 +625,10 @@
             }
         });
 
+// 【修改與新增】資源預先載入邏輯與初始化
         window.onload = () => {
             renderMenuButtons(); 
+            
             // 綁定精準打擊判定至所有的熱點
             document.querySelectorAll('.hotspot').forEach(el => {
                 el.setAttribute('hotspot-listener', '');
@@ -619,6 +638,44 @@
                     const m = el.getObject3D('mesh');
                     if (m) m.frustumCulled = false;
                 });
+            });
+
+            // --- 預載執行區塊 ---
+            const loadingScreen = document.getElementById('loading-screen');
+            const loadingText = document.getElementById('loading-text');
+            
+            // 收集全景圖與資料庫中所有獨立圖片
+            let imagesToLoad = ['b_side.jpg']; 
+            for (const key in HOTSPOT_DATABASE) {
+                if (HOTSPOT_DATABASE[key].img && !imagesToLoad.includes(HOTSPOT_DATABASE[key].img)) {
+                    imagesToLoad.push(HOTSPOT_DATABASE[key].img);
+                }
+            }
+
+            let loadedCount = 0;
+            const totalImages = imagesToLoad.length;
+
+            if (totalImages === 0) {
+                loadingScreen.style.display = 'none';
+                return;
+            }
+
+            // 非同步寫入快取
+            imagesToLoad.forEach(src => {
+                const img = new Image();
+                img.onload = img.onerror = () => {
+                    loadedCount++;
+                    loadingText.innerText = `系統資源載入中... (${Math.round((loadedCount / totalImages) * 100)}%)`;
+                    // 當全數載入完畢，淡出隱藏遮罩
+                    if (loadedCount === totalImages) {
+                        setTimeout(() => {
+                            loadingScreen.style.opacity = '0';
+                            loadingScreen.style.transition = 'opacity 0.5s';
+                            setTimeout(() => loadingScreen.style.display = 'none', 500);
+                        }, 300);
+                    }
+                };
+                img.src = src;
             });
         };
 
